@@ -16,6 +16,7 @@ import (
 	"github.com/B42Labs/openstack-tester/internal/executor"
 	"github.com/B42Labs/openstack-tester/internal/metrics"
 	"github.com/B42Labs/openstack-tester/internal/neutron"
+	"github.com/B42Labs/openstack-tester/internal/run"
 )
 
 // newApplyCmd builds "neutron apply". With --dry-run it expands the scenario
@@ -71,15 +72,45 @@ func newApplyCmd(opts *globalOptions) *cobra.Command {
 
 			start := time.Now()
 			res, applyErr := executor.Apply(ctx, runID, client, p, opts.concurrency, opts.timeout)
-			wall := time.Since(start)
+			finished := time.Now()
+			wall := finished.Sub(start)
+			agg := collector.Aggregate(wall)
 
 			// Print metrics even on partial failure so the run is never silent.
-			if _, err := fmt.Fprint(cmd.OutOrStdout(), collector.Aggregate(wall).Summary()); err != nil {
+			if _, err := fmt.Fprint(cmd.OutOrStdout(), agg.Summary()); err != nil {
 				return fmt.Errorf("writing metrics: %w", err)
+			}
+
+			// Persist the run record even on partial failure so the resources
+			// created so far can be reported on and cleaned up by tag.
+			rec := &run.Record{
+				RunID:      runID,
+				Scenario:   p.Scenario,
+				Seed:       p.Seed,
+				StartedAt:  start,
+				FinishedAt: finished,
+				Created:    res.Created,
+				Metrics:    agg,
+			}
+			if applyErr != nil {
+				rec.Error = applyErr.Error()
+			}
+			// A failed record write must not mask a successful apply: the tagged
+			// resources are live and must stay cleanable. Report the apply outcome
+			// first, then surface the write failure distinctly so it is never read
+			// as a failed apply nor silently dropped.
+			recordPath, werr := run.Write(".", rec)
+			if werr != nil {
+				slog.Error("writing run record failed; clean up by run id", "run", runID, "error", werr)
+			} else if _, err := fmt.Fprintf(cmd.OutOrStdout(), "run record written to %s\n", recordPath); err != nil {
+				return fmt.Errorf("writing output: %w", err)
 			}
 
 			if applyErr != nil {
 				return fmt.Errorf("applying plan (run %s): %w", runID, applyErr)
+			}
+			if werr != nil {
+				return fmt.Errorf("apply succeeded but writing run record failed (run %s): %w", runID, werr)
 			}
 
 			slog.Info("apply complete", "run", runID, "created", len(res.Created), "wall", wall)
