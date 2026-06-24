@@ -1,0 +1,225 @@
+{
+  "scenario": "small",
+  "seed": 42,
+  "addressScopes": [
+    {
+      "name": "as-0001",
+      "ipVersion": 4
+    }
+  ],
+  "subnetPools": [
+    {
+      "name": "pool-0001",
+      "ipVersion": 4,
+      "prefixes": [
+        "172.16.0.0/16"
+      ],
+      "defaultPrefixLen": 26
+    }
+  ],
+  "networks": [
+    {
+      "name": "net-0001"
+    },
+    {
+      "name": "net-0002"
+    },
+    {
+      "name": "net-0003"
+    }
+  ],
+  "subnets": [
+    {
+      "name": "subnet-0001",
+      "network": "net-0001",
+      "ipVersion": 6,
+      "cidr": "fd00::/64",
+      "ipv6AddressMode": "slaac",
+      "ipv6RAMode": "slaac"
+    },
+    {
+      "name": "subnet-0002",
+      "network": "net-0001",
+      "ipVersion": 6,
+      "cidr": "fd00:0:0:1::/64",
+      "ipv6AddressMode": "slaac",
+      "ipv6RAMode": "slaac"
+    },
+    {
+      "name": "subnet-0003",
+      "network": "net-0002",
+      "ipVersion": 4,
+      "subnetPool": "pool-0001",
+      "prefixLen": 26
+    },
+    {
+      "name": "subnet-0004",
+      "network": "net-0002",
+      "ipVersion": 4,
+      "subnetPool": "pool-0001",
+      "prefixLen": 26
+    },
+    {
+      "name": "subnet-0005",
+      "network": "net-0003",
+      "ipVersion": 4,
+      "cidr": "10.0.0.0/24"
+    },
+    {
+      "name": "subnet-0006",
+      "network": "net-0003",
+      "ipVersion": 4,
+      "cidr": "10.0.1.0/24"
+    }
+  ],
+  "routers": [
+    {
+      "name": "router-0001"
+    },
+    {
+      "name": "router-0002"
+    }
+  ],
+  "routerInterfaces": [
+    {
+      "name": "rif-0001",
+      "router": "router-0001",
+      "subnet": "subnet-0001"
+    },
+    {
+      "name": "rif-0002",
+      "router": "router-0001",
+      "subnet": "subnet-0002"
+    },
+    {
+      "name": "rif-0003",
+      "router": "router-0001",
+      "subnet": "subnet-0003"
+    },
+    {
+      "name": "rif-0004",
+      "router": "router-0002",
+      "subnet": "subnet-0004"
+    },
+    {
+      "name": "rif-0005",
+      "router": "router-0001",
+      "subnet": "subnet-0005"
+    }
+  ],
+  "securityGroups": [
+    {
+      "name": "sg-0001",
+      "rules": [
+        {
+          "direction": "egress",
+          "etherType": "IPv4",
+          "protocol": "udp",
+          "portRangeMin": 37150,
+          "portRangeMax": 37150,
+          "remoteIPPrefix": "0.0.0.0/0"
+        },
+        {
+          "direction": "egress",
+          "etherType": "IPv4",
+          "protocol": "icmp",
+          "remoteIPPrefix": "0.0.0.0/0"
+        }
+      ]
+    },
+    {
+      "name": "sg-0002",
+      "rules": [
+        {
+          "direction": "ingress",
+          "etherType": "IPv4",
+          "protocol": "udp",
+          "portRangeMin": 61015,
+          "portRangeMax": 61015,
+          "remoteIPPrefix": "0.0.0.0/0"
+        },
+        {
+          "direction": "egress",
+          "etherType": "IPv6",
+          "protocol": "udp",
+          "portRangeMin": 55883,
+          "portRangeMax": 55883,
+          "remoteIPPrefix": "::/0"
+        },
+        {
+          "direction": "ingress",
+          "etherType": "IPv6",
+          "protocol": "tcp",
+          "portRangeMin": 55189,
+          "portRangeMax": 55189,
+          "remoteGroup": "sg-0001"
+        }
+      ]
+    }
+  ],
+  "ports": [
+    {
+      "name": "port-0001",
+      "network": "net-0001",
+      "fixedIPs": [
+        {
+          "subnet": "subnet-0001"
+        }
+      ],
+      "securityGroups": [
+        "sg-0001"
+      ]
+    },
+    {
+      "name": "port-0002",
+      "network": "net-0001",
+      "fixedIPs": [
+        {
+          "subnet": "subnet-0001"
+        }
+      ],
+      "securityGroups": [
+        "sg-0002",
+        "sg-0001"
+      ]
+    },
+    {
+      "name": "port-0003",
+      "network": "net-0002",
+      "fixedIPs": [
+        {
+          "subnet": "subnet-0003"
+        }
+      ],
+      "securityGroups": [
+        "sg-0001",
+        "sg-0002"
+      ]
+    },
+    {
+      "name": "port-0004",
+      "network": "net-0003",
+      "fixedIPs": [
+        {
+          "subnet": "subnet-0006"
+        }
+      ],
+      "securityGroups": [
+        "sg-0002"
+      ]
+    },
+    {
+      "name": "port-0005",
+      "network": "net-0003",
+      "fixedIPs": [
+        {
+          "subnet": "subnet-0005"
+        }
+      ],
+      "securityGroups": [
+        "sg-0002",
+        "sg-0001"
+      ]
+    }
+  ]
+}
