@@ -1,0 +1,12 @@
+# Built binary
+/openstack-tester
+
+# Go test/coverage artifacts
+*.test
+*.out
+
+# Editor / OS files
+*.swp
+.DS_Store
+.idea/
+.vscode/
