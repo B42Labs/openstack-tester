@@ -328,6 +328,20 @@ func IsConflict(err error) bool {
 	return !isQuota(err) && gophercloud.ResponseCodeIs(err, 409)
 }
 
+// IsNotFound reports whether err is a Neutron 404. Status and cleanup use it to
+// treat a resource that is already gone as success rather than an error, which
+// is what makes cleanup idempotent.
+func IsNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	if gophercloud.ResponseCodeIs(err, 404) {
+		return true
+	}
+	var nf gophercloud.ErrResourceNotFound
+	return errors.As(err, &nf)
+}
+
 // isQuota reports whether err is a Neutron quota rejection: a 409 or 403 whose
 // body mentions a quota.
 func isQuota(err error) bool {

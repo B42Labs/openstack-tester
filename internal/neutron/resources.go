@@ -55,6 +55,75 @@ func (c *Client) status(ctx context.Context, r Resource) (string, error) {
 	}
 }
 
+// Observe re-queries the live state of a created resource, recording the call.
+// It returns the resource's status (empty for kinds that do not report one),
+// whether the resource still exists, and any error other than a 404. A 404 is
+// reported as ("", false, nil) so a resource deleted out of band reads as gone
+// rather than as a failure. The status command drives this over a run's
+// resources.
+func (c *Client) Observe(ctx context.Context, r Resource) (status string, exists bool, err error) {
+	err = c.timed(ctx, string(r.Kind), func(ctx context.Context) error {
+		s, getErr := c.observe(ctx, r)
+		if getErr != nil {
+			return getErr
+		}
+		status = s
+		return nil
+	})
+	switch {
+	case IsNotFound(err):
+		return "", false, nil
+	case err != nil:
+		return "", false, err
+	default:
+		return status, true, nil
+	}
+}
+
+// observe fetches a resource and returns its status (empty for kinds without
+// one) without recording a sample; Observe wraps it through c.timed. Unlike
+// status it covers every kind so a run's full resource set can be re-queried.
+// Router interfaces are observed through the port id stored at attach time.
+func (c *Client) observe(ctx context.Context, r Resource) (string, error) {
+	switch r.Kind {
+	case KindNetwork:
+		n, err := networks.Get(ctx, c.gc, r.ID).Extract()
+		if err != nil {
+			return "", err
+		}
+		return n.Status, nil
+	case KindRouter:
+		ro, err := routers.Get(ctx, c.gc, r.ID).Extract()
+		if err != nil {
+			return "", err
+		}
+		return ro.Status, nil
+	case KindPort, KindRouterInterface:
+		p, err := ports.Get(ctx, c.gc, r.ID).Extract()
+		if err != nil {
+			return "", err
+		}
+		return p.Status, nil
+	case KindSubnet:
+		_, err := subnets.Get(ctx, c.gc, r.ID).Extract()
+		return "", err
+	case KindSubnetPool:
+		_, err := subnetpools.Get(ctx, c.gc, r.ID).Extract()
+		return "", err
+	case KindSecurityGroup:
+		_, err := groups.Get(ctx, c.gc, r.ID).Extract()
+		return "", err
+	case KindSecurityGroupRule:
+		_, err := rules.Get(ctx, c.gc, r.ID).Extract()
+		return "", err
+	case KindAddressScope:
+		_, err := addressscopes.Get(ctx, c.gc, r.ID).Extract()
+		return "", err
+	default:
+		return "", fmt.Errorf("observe not supported for kind %q", r.Kind)
+	}
+}
+
 // Delete removes a resource, recording the call. Router interfaces cannot be
 // deleted by id (they are detached with RemoveInterface), so Delete rejects
 // that kind; the executor never calls it and a later cleanup detaches them
