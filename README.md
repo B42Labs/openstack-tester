@@ -11,8 +11,10 @@ intended (API) state against the actual data plane (OVN / OVS).
 > **Status:** Phase 1 in progress. The Go module, the `openstack-tester` CLI
 > skeleton (the `neutron` command namespace), `clouds.yaml`-based
 > authentication, the YAML scenario schema, the deterministic plan generator,
-> the `generate` command, and `apply --dry-run` now exist. The apply executor,
-> metrics, and reporting described below are still being built.
+> the `generate` command, and `apply` (both `--dry-run` and the live executor,
+> which builds the full tagged topology in dependency order and collects timing
+> metrics) now exist. Run records, reporting, tag-based cleanup, and the quota
+> pre-check described below are still being built.
 
 ---
 
@@ -318,10 +320,11 @@ contrib/openstack-tester/
    - [ ] Scaffold module, CLI, `clouds.yaml` auth.
    - [ ] Scenario schema + deterministic generator (seeded).
    - [ ] `generate` (plan dump) + `--dry-run`.
-   - [ ] Neutron resource wrappers (pools, networks, subnets, routers,
+   - [x] Neutron resource wrappers (pools, networks, subnets, routers,
          interfaces, security groups + rules, ports) with tagging.
-   - [ ] Dependency-ordered, concurrent executor with retry/backoff.
-   - [ ] Metrics collection, state polling, run records, reporting.
+   - [x] Dependency-ordered, concurrent executor with retry/backoff.
+   - [x] Metrics collection and state polling.
+   - [ ] Run records, reporting, and CSV/Prometheus export.
    - [ ] Tag-based `cleanup`; quota pre-check.
    - [ ] Built-in profiles (incl. the 20/100/200 example).
 2. **Phase 2 — data-plane verification**
