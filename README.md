@@ -200,8 +200,10 @@ openstack-tester neutron verify    --run run-<id>.json   # Phase 2 (future)
   run record + metrics. `--dry-run` validates and prints what would be created.
 - `status` — re-query the current state of a run's resources from the API.
 - `report` — render metrics from a run record (table / JSON / CSV).
-- `cleanup` — delete all resources belonging to a run (by tag), in reverse
-  dependency order; idempotent.
+- `cleanup` — delete all resources belonging to a run, in reverse dependency
+  order; idempotent. Tag-discoverable resources are found by the run tag; address
+  scopes (which Neutron may not let us tag) are reclaimed from the run record by
+  id, so reclaiming them needs `--run`, not a bare `--run-id`.
 - `verify` — (Phase 2) compare run/plan against OVN/OVS.
 
 Global flags: `--os-cloud` (defaults to `$OS_CLOUD`), `--concurrency`,
@@ -272,7 +274,10 @@ planned but not yet implemented.
   retried with exponential backoff; quota errors fail fast with a clear message.
 - **Tagging**: every created resource is tagged with a run identifier (e.g.
   `ostester:run=<id>` plus type/index tags). Cleanup operates strictly on these
-  tags, so it never touches resources the tool did not create.
+  tags, so it never touches resources the tool did not create. Tagging address
+  scopes is best-effort — some Neutron releases return 404 for it — so a tag
+  failure there is logged and tolerated (and left out of the metrics); those
+  resources are instead reclaimed at cleanup from the run record, by id.
 - **Naming**: deterministic names like `ostester-<id>-net-0001` for easy
   identification in Horizon / the CLI.
 
@@ -298,7 +303,8 @@ read its own quota, with the executor's quota fast-fail as the backstop.
 ## 12. Safety
 
 - Operates only within the project of the selected `clouds.yaml` entry.
-- `cleanup` deletes **only** tag-matched resources from a known run.
+- `cleanup` deletes **only** resources from a known run — tag-matched, plus
+  address scopes reclaimed from that run's record by id.
 - `--dry-run` for `apply` to preview without creating anything.
 - No destructive defaults; the cloud and project must be chosen explicitly.
 

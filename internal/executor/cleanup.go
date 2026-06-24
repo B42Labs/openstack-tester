@@ -17,15 +17,19 @@ type Cleaner interface {
 	Delete(ctx context.Context, r neutron.Resource) error
 }
 
-// Cleanup deletes every resource tagged for runID in reverse dependency order,
-// returning the number deleted. It removes only tag-matched resources, so it
-// never touches resources the tool did not create, and it treats an
-// already-gone resource as success — so running it twice is a no-op. Router
-// interfaces are detached (not deleted) before the routers and subnets they
-// attach can be removed; security-group rules are not handled because they
-// cascade with their group. The first non-404 error stops the run and is
-// returned with the count deleted so far.
-func Cleanup(ctx context.Context, c Cleaner, runID string) (int, error) {
+// Cleanup deletes every resource a run created in reverse dependency order,
+// returning the number deleted. Tag-discoverable kinds are found by the run's
+// ostester:run=<id> tag, so it never touches resources the tool did not create;
+// address scopes, which Neutron may not let us tag (and which gophercloud cannot
+// filter by tag), are reclaimed instead from recorded — the run record's created
+// list — by id. recorded is nil when cleanup runs from a bare run id (--run-id),
+// in which case address scopes cannot be reclaimed. It treats an already-gone
+// resource as success — so running it twice is a no-op. Router interfaces are
+// detached (not deleted) before the routers and subnets they attach can be
+// removed; security-group rules are not handled because they cascade with their
+// group. The first non-404 error stops the run and is returned with the count
+// deleted so far.
+func Cleanup(ctx context.Context, c Cleaner, runID string, recorded []neutron.Resource) (int, error) {
 	var deleted int
 
 	// Ports first: they pin subnet IPs and belong to networks.
@@ -76,14 +80,37 @@ func Cleanup(ctx context.Context, c Cleaner, runID string) (int, error) {
 		return deleted, err
 	}
 
-	// Subnet pools last: subnets allocate their CIDRs from them.
+	// Subnet pools: subnets allocate their CIDRs from them.
 	n, err = deleteKind(ctx, c, neutron.KindSubnetPool, runID)
 	deleted += n
 	if err != nil {
 		return deleted, err
 	}
 
+	// Address scopes last, after the subnet pools that reference them. They
+	// cannot be discovered by tag, so they are reclaimed from the run record by
+	// id; with no record (recorded is nil) there is nothing to reclaim here.
+	n, err = deleteResources(ctx, c, recordedOfKind(recorded, neutron.KindAddressScope))
+	deleted += n
+	if err != nil {
+		return deleted, err
+	}
+
 	return deleted, nil
+}
+
+// recordedOfKind returns the resources of kind from a run record's created list.
+// It is the discovery path for kinds that cannot be found by tag (address
+// scopes, which Neutron may not let us tag): cleanup deletes them by the id the
+// record captured at apply time.
+func recordedOfKind(recorded []neutron.Resource, kind neutron.Kind) []neutron.Resource {
+	var out []neutron.Resource
+	for _, r := range recorded {
+		if r.Kind == kind {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // deleteKind lists every resource of kind tagged for runID and deletes each.

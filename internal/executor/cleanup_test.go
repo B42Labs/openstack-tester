@@ -79,7 +79,7 @@ func idx(events []string, event string) int {
 // removed, and subnets precede networks and subnet pools.
 func TestCleanupReverseDependencyOrder(t *testing.T) {
 	f := seedFullTopology()
-	deleted, err := Cleanup(context.Background(), f, "run0")
+	deleted, err := Cleanup(context.Background(), f, "run0", nil)
 	if err != nil {
 		t.Fatalf("Cleanup: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestCleanupReverseDependencyOrder(t *testing.T) {
 // and nothing outside the seeded (tagged) set is touched.
 func TestCleanupOnlyTaggedResources(t *testing.T) {
 	f := seedFullTopology()
-	if _, err := Cleanup(context.Background(), f, "run0"); err != nil {
+	if _, err := Cleanup(context.Background(), f, "run0", nil); err != nil {
 		t.Fatalf("Cleanup: %v", err)
 	}
 	var detaches []string
@@ -133,7 +133,7 @@ func TestCleanupOnlyTaggedResources(t *testing.T) {
 func TestCleanupIdempotent(t *testing.T) {
 	f := seedFullTopology()
 
-	first, err := Cleanup(context.Background(), f, "run0")
+	first, err := Cleanup(context.Background(), f, "run0", nil)
 	if err != nil {
 		t.Fatalf("first Cleanup: %v", err)
 	}
@@ -141,7 +141,7 @@ func TestCleanupIdempotent(t *testing.T) {
 		t.Fatal("first Cleanup deleted nothing; expected the seeded resources")
 	}
 
-	second, err := Cleanup(context.Background(), f, "run0")
+	second, err := Cleanup(context.Background(), f, "run0", nil)
 	if err != nil {
 		t.Fatalf("second Cleanup: %v", err)
 	}
@@ -156,7 +156,7 @@ func TestCleanupIgnoresNotFound(t *testing.T) {
 	f := seedFullTopology()
 	f.failDelete["n1"] = gophercloud.ErrUnexpectedResponseCode{Actual: 404}
 
-	deleted, err := Cleanup(context.Background(), f, "run0")
+	deleted, err := Cleanup(context.Background(), f, "run0", nil)
 	if err != nil {
 		t.Fatalf("Cleanup must ignore a 404, got %v", err)
 	}
@@ -175,7 +175,62 @@ func TestCleanupPropagatesError(t *testing.T) {
 	f := seedFullTopology()
 	f.failDelete["p1"] = gophercloud.ErrUnexpectedResponseCode{Actual: 500}
 
-	if _, err := Cleanup(context.Background(), f, "run0"); err == nil {
+	if _, err := Cleanup(context.Background(), f, "run0", nil); err == nil {
 		t.Fatal("expected the 500 delete error to propagate")
+	}
+}
+
+// TestCleanupReclaimsRecordedAddressScopes confirms an address scope — which
+// cannot be discovered by tag — is reclaimed from the run record by id, deleted
+// after the subnet pools that reference it, and that a second sweep is a no-op.
+func TestCleanupReclaimsRecordedAddressScopes(t *testing.T) {
+	f := seedFullTopology()
+	recorded := []neutron.Resource{
+		{Kind: neutron.KindNetwork, ID: "n1"}, // also recorded, but found by tag
+		{Kind: neutron.KindAddressScope, ID: "as1"},
+	}
+
+	deleted, err := Cleanup(context.Background(), f, "run0", recorded)
+	if err != nil {
+		t.Fatalf("Cleanup: %v", err)
+	}
+	// Six tag-discovered resources plus the recorded address scope.
+	if deleted != 7 {
+		t.Errorf("deleted %d resources, want 7", deleted)
+	}
+
+	pool := idx(f.events, "delete:subnet-pool")
+	as := idx(f.events, "delete:address-scope")
+	if as < 0 {
+		t.Fatalf("address scope never deleted; log=%v", f.events)
+	}
+	if pool < 0 || pool >= as {
+		t.Errorf("subnet pools must be deleted before address scopes; log=%v", f.events)
+	}
+
+	second, err := Cleanup(context.Background(), f, "run0", recorded)
+	if err != nil {
+		t.Fatalf("second Cleanup: %v", err)
+	}
+	if second != 0 {
+		t.Errorf("second Cleanup deleted %d resources, want 0 (a no-op)", second)
+	}
+}
+
+// TestCleanupWithoutRecordSkipsAddressScopes confirms that without a run record
+// (recorded is nil, the --run-id path) address scopes are left untouched: they
+// cannot be discovered by tag, so there is nothing to reclaim.
+func TestCleanupWithoutRecordSkipsAddressScopes(t *testing.T) {
+	f := seedFullTopology()
+
+	deleted, err := Cleanup(context.Background(), f, "run0", nil)
+	if err != nil {
+		t.Fatalf("Cleanup: %v", err)
+	}
+	if deleted != 6 {
+		t.Errorf("deleted %d resources, want 6 (no address scope without a record)", deleted)
+	}
+	if slices.Contains(f.events, "delete:address-scope") {
+		t.Error("address scope must not be deleted without a run record")
 	}
 }

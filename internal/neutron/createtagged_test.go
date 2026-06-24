@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/gophercloud/gophercloud/v2"
 
@@ -89,5 +90,56 @@ func TestCreateTaggedLogsOrphanNameOnCreateError(t *testing.T) {
 	}
 	if logged := buf.String(); !strings.Contains(logged, "ostester-run0-net-0001") {
 		t.Errorf("create-error warning did not include the deterministic name; log=%q", logged)
+	}
+}
+
+// TestCreateTaggedAddressScopeTagIsBestEffortAndUnmetered verifies that when a
+// Neutron release returns 404 for an address-scope tag (it does not expose the
+// tag API there), the create still succeeds, the resource is returned so a
+// record-based cleanup can reclaim it, and the tolerated tag failure is left out
+// of the metrics — only the create is recorded, never counted as a failure.
+func TestCreateTaggedAddressScopeTagIsBestEffortAndUnmetered(t *testing.T) {
+	var puts atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/tags") {
+			puts.Add(1)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer ts.Close()
+
+	coll := metrics.NewCollector()
+	gc := &gophercloud.ServiceClient{
+		ProviderClient: &gophercloud.ProviderClient{},
+		Endpoint:       ts.URL + "/",
+	}
+	c := New(gc, "run0", coll)
+
+	// The create closure returns an id without an HTTP call, so the only request
+	// is the tag PUT that 404s.
+	r, err := c.createTagged(context.Background(), KindAddressScope, "as-0001",
+		func(ctx context.Context, name string) (string, error) {
+			return "as-id-1", nil
+		})
+	if err != nil {
+		t.Fatalf("a best-effort tag 404 must not fail the create: %v", err)
+	}
+	if r.ID != "as-id-1" {
+		t.Errorf("resource id = %q, want as-id-1 (it must still be returned for record-based cleanup)", r.ID)
+	}
+	// A 404 is not retryable, so the best-effort tag is attempted exactly once.
+	if got := puts.Load(); got != 1 {
+		t.Errorf("tag PUT attempted %d times, want 1 (a 404 is not retried)", got)
+	}
+
+	agg := coll.Aggregate(time.Second)
+	if agg.Overall.Failed != 0 {
+		t.Errorf("best-effort tag 404 counted as a failure: overall failed=%d, want 0", agg.Overall.Failed)
+	}
+	if agg.Overall.Attempted != 1 {
+		t.Errorf("metrics recorded %d ops, want 1 (only the create; the best-effort tag is unmetered)", agg.Overall.Attempted)
 	}
 }

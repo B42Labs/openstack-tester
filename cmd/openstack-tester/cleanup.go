@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -31,7 +32,7 @@ func newCleanupCmd(opts *globalOptions) *cobra.Command {
 		Use:   "cleanup",
 		Short: "Delete all resources belonging to a run, by tag",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, err := resolveRunID(runPath, runID)
+			id, recorded, err := resolveRun(runPath, runID)
 			if err != nil {
 				return err
 			}
@@ -46,7 +47,13 @@ func newCleanupCmd(opts *globalOptions) *cobra.Command {
 			}
 			client := neutron.New(gc, id, metrics.NewCollector())
 
-			deleted, cleanupErr := executor.Cleanup(ctx, client, id)
+			// Address scopes cannot be discovered by tag and are reclaimed only
+			// from a run record. Cleaning up from a bare id leaves any behind.
+			if recorded == nil {
+				slog.Warn("cleaning up by id without a run record; resources that cannot be discovered by tag (e.g. address scopes) will not be reclaimed — pass --run to reclaim them", "run", id)
+			}
+
+			deleted, cleanupErr := executor.Cleanup(ctx, client, id, recorded)
 			// Report progress even on partial failure so an interrupted sweep is
 			// never silent about what it already removed.
 			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "deleted %d resource(s) for run %s\n", deleted, id); err != nil {
@@ -66,18 +73,21 @@ func newCleanupCmd(opts *globalOptions) *cobra.Command {
 	return cmd
 }
 
-// resolveRunID derives the run id from exactly one of a run-record path or a
-// literal id, erroring when neither or both are supplied.
-func resolveRunID(runPath, runID string) (string, error) {
+// resolveRun derives the run id and, when available, the resources the run
+// recorded as created, from exactly one of a run-record path or a literal id. A
+// literal id (--run-id) carries no record, so recorded is nil and kinds that
+// cannot be discovered by tag (address scopes) cannot be reclaimed; a record
+// (--run) supplies both. It errors when neither or both are supplied.
+func resolveRun(runPath, runID string) (id string, recorded []neutron.Resource, err error) {
 	if (runPath == "") == (runID == "") {
-		return "", errors.New("exactly one of --run or --run-id is required")
+		return "", nil, errors.New("exactly one of --run or --run-id is required")
 	}
 	if runID != "" {
-		return runID, nil
+		return runID, nil, nil
 	}
 	rec, err := run.Load(runPath)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
-	return rec.RunID, nil
+	return rec.RunID, rec.Created, nil
 }

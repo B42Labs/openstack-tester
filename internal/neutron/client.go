@@ -130,24 +130,42 @@ const (
 	tagRetryDelay = 250 * time.Millisecond
 )
 
+// tagOptional reports whether tagging kind is best-effort. Not every Neutron
+// release exposes the tag API for address scopes (the PUT .../tags returns 404),
+// so a tag failure there is tolerated — logged and skipped — rather than fatal.
+// A best-effort tag is left out of the run metrics (a tolerated failure must not
+// count against the kind's success rate) and the resource is reclaimed at
+// cleanup from the run record by id, since it cannot be discovered by tag.
+func tagOptional(kind Kind) bool {
+	return kind == KindAddressScope
+}
+
 // tag replaces the tags on a created resource with the run tags for its kind.
-// ReplaceAll is idempotent, so it is safe to retry.
-func (c *Client) tag(ctx context.Context, kind Kind, id string) error {
-	return c.timed(ctx, string(kind), func(ctx context.Context) error {
+// When record is true the attempt is timed into the metrics under the kind's
+// type; a best-effort tag (record == false) is not part of the measured workload
+// and is left out entirely, so a tolerated failure never counts as a failed
+// operation. ReplaceAll is idempotent, so it is safe to retry.
+func (c *Client) tag(ctx context.Context, kind Kind, id string, record bool) error {
+	do := func(ctx context.Context) error {
 		opts := attributestags.ReplaceAllOpts{Tags: runTags(c.runID, kind)}
 		_, err := attributestags.ReplaceAll(ctx, c.gc, tagCollection(kind), id, opts).Extract()
 		return err
-	})
+	}
+	if !record {
+		return do(ctx)
+	}
+	return c.timed(ctx, string(kind), do)
 }
 
 // tagWithRetry tags an already-created resource, retrying a transient failure a
 // bounded number of times. The resource id is fixed and ReplaceAll is
 // idempotent, so unlike the executor's create retry this never re-creates the
 // resource — preventing a retryable tag failure from orphaning a duplicate.
-func (c *Client) tagWithRetry(ctx context.Context, kind Kind, id string) error {
+// record is threaded through to tag so a best-effort tag stays out of the metrics.
+func (c *Client) tagWithRetry(ctx context.Context, kind Kind, id string, record bool) error {
 	var err error
 	for attempt := 1; attempt <= tagAttempts; attempt++ {
-		if err = c.tag(ctx, kind, id); err == nil || !IsRetryable(err) {
+		if err = c.tag(ctx, kind, id, record); err == nil || !IsRetryable(err) {
 			return err
 		}
 		if attempt == tagAttempts {
@@ -165,11 +183,13 @@ func (c *Client) tagWithRetry(ctx context.Context, kind Kind, id string) error {
 // createTagged centralizes the create-then-tag flow shared by every taggable
 // resource kind: it applies the deterministic name via create, records the
 // create and tag timings, wraps quota errors with ErrQuota, and returns the
-// resulting Resource. Tagging address scopes is best-effort because not every
-// Neutron release supports it; a tag failure there is logged and the run
-// continues. For all other kinds a tag failure (after a bounded in-place retry)
-// rolls the created resource back and fails the create, so a resource is never
-// left created-but-untagged where tag-based cleanup cannot reclaim it.
+// resulting Resource. Tagging address scopes is best-effort (see tagOptional)
+// because not every Neutron release supports it; a tag failure there is logged,
+// kept out of the metrics, and the run continues — the resource is reclaimed at
+// cleanup from the run record by id. For all other kinds a tag failure (after a
+// bounded in-place retry) rolls the created resource back and fails the create,
+// so a resource is never left created-but-untagged where tag-based cleanup
+// cannot reclaim it.
 func (c *Client) createTagged(ctx context.Context, kind Kind, logical string, create func(ctx context.Context, name string) (id string, err error)) (Resource, error) {
 	name := resourceName(c.runID, logical)
 	var id string
@@ -189,8 +209,9 @@ func (c *Client) createTagged(ctx context.Context, kind Kind, logical string, cr
 	}
 
 	r := Resource{Kind: kind, Logical: logical, Name: name, ID: id}
-	if err := c.tagWithRetry(ctx, kind, id); err != nil {
-		if kind == KindAddressScope {
+	optional := tagOptional(kind)
+	if err := c.tagWithRetry(ctx, kind, id, !optional); err != nil {
+		if optional {
 			slog.Warn("tagging address scope failed; continuing", "id", id, "error", err)
 			return r, nil
 		}
