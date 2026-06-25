@@ -35,7 +35,7 @@ func writeReportRecord(t *testing.T) string {
 func TestReportConsistentAcrossFormats(t *testing.T) {
 	path := writeReportRecord(t)
 
-	for _, format := range []string{"table", "json", "csv"} {
+	for _, format := range []string{"table", "json", "csv", "html"} {
 		t.Run(format, func(t *testing.T) {
 			out, err := execRoot(t, "neutron", "report", "--run", path, "--format", format)
 			if err != nil {
