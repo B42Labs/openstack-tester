@@ -248,7 +248,7 @@ openstack-tester neutron generate  --scenario medium.yaml [--out plan.json]
 openstack-tester neutron apply     --scenario medium.yaml [--dry-run]
 openstack-tester neutron chaos     --scenario medium.yaml [--duration 30m]
 openstack-tester neutron status    --run run-<id>.json
-openstack-tester neutron report    --run run-<id>.json [--format table|json|csv]
+openstack-tester neutron report    --run run-<id>.json [--format table|json|csv|html]
 openstack-tester neutron cleanup   --run run-<id>.json   # or --run-id <id>
 openstack-tester neutron verify    --run run-<id>.json   # Phase 2 (future)
 ```
@@ -276,7 +276,8 @@ openstack-tester neutron verify    --run run-<id>.json   # Phase 2 (future)
   down by tag and runs a leak check; Ctrl-C / SIGTERM leaves the resources in
   place for an explicit `cleanup --run <id>`.
 - `status` — re-query the current state of a run's resources from the API.
-- `report` — render metrics from a run record (table / JSON / CSV).
+- `report` — render metrics from a run record (table / JSON / CSV / a
+  self-contained visual HTML report).
 - `cleanup` — delete all resources belonging to a run, in reverse dependency
   order; idempotent. Tag-discoverable resources are found by the run tag; address
   scopes (which Neutron may not let us tag) are reclaimed from the run record by
@@ -329,11 +330,15 @@ Reported per resource type and overall:
 - total wall-clock for the run,
 - error breakdown (timeouts, 409 conflicts, quota, 5xx, …).
 
-`report` renders a run record's metrics in three formats:
+`report` renders a run record's metrics in four formats:
 
 - human-readable **table** on stdout (the default),
 - **JSON** metrics (machine-readable),
-- **CSV** with one row per resource type plus an overall row.
+- **CSV** with one row per resource type plus an overall row,
+- a self-contained, offline **HTML** report with inline SVG charts for
+  latency, throughput, and error rates — and, for a churn run, the
+  per-bucket degradation over time — to archive next to the run record
+  (`--format html > report.html`).
 
 The canonical run record itself is the `run-<id>.json` written by `apply`. An
 optional **Prometheus textfile** export to fit the testbed's monitoring is
