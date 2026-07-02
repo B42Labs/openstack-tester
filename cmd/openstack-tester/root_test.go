@@ -26,7 +26,7 @@ func TestNeutronSubcommandsRegistered(t *testing.T) {
 		t.Fatal("neutron command not registered on root")
 	}
 
-	want := []string{"generate", "apply", "chaos", "status", "report", "cleanup", "verify"}
+	want := []string{"generate", "apply", "chaos", "monitor", "status", "report", "cleanup", "verify"}
 	for _, name := range want {
 		t.Run(name, func(t *testing.T) {
 			if findSubcommand(neutron, name) == nil {
@@ -38,7 +38,7 @@ func TestNeutronSubcommandsRegistered(t *testing.T) {
 
 func TestGlobalFlagsRegistered(t *testing.T) {
 	flags := newRootCmd().PersistentFlags()
-	for _, name := range []string{"os-cloud", "concurrency", "timeout", "seed", "log-level"} {
+	for _, name := range []string{"os-cloud", "concurrency", "timeout", "seed", "log-level", "otel"} {
 		t.Run(name, func(t *testing.T) {
 			if flags.Lookup(name) == nil {
 				t.Errorf("persistent flag %q not registered", name)
